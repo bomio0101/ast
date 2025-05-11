@@ -4,7 +4,7 @@ import sqlite3
 from ids import *
 
 app = Flask(__name__)
-CORS(app)  # 添加这一行
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 def init_db():
     conn = sqlite3.connect('network_data.db')
@@ -13,11 +13,6 @@ def init_db():
                 (id INTEGER PRIMARY KEY, data TEXT)''')
     conn.commit()
     conn.close()
-
-
-# @app.route('/')
-# def home():
-#     return jsonify({'message': 'API is running'}), 200
 
 
 @app.route('/upload', methods=['POST'])

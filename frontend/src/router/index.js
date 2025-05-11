@@ -17,11 +17,11 @@ const router = createRouter({
       name: "threat",
       component: () => import("../views/ThreatView.vue"),
     },
-    // {
-    //   path: "/about",
-    //   name: "about",
-    //   component: () => import("../../AboutView.vue"),
-    // },
+    {
+      path: "/about",
+      name: "about",
+      component: () => import("../views/AboutView.vue"),
+    },
   ],
 });
 
