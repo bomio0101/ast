@@ -4,6 +4,8 @@ import HeaderView from "./components/HeaderView.vue";
 </script>
 <template>
   <HeaderView />
-  <RouterView />
+  <keep-alive>
+    <RouterView />
+  </keep-alive>
 </template>
 <style scoped></style>

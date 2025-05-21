@@ -3,7 +3,9 @@ import { ref, onMounted } from "vue";
 import { uploadFile, getResults } from "../api";
 import { ElMessage } from "element-plus";
 import { UploadFilled } from "@element-plus/icons-vue";
+import { useRouter } from "vue-router";
 
+const router = useRouter();
 const results = ref([]);
 
 const handleFileUpload = async (file) => {
@@ -13,6 +15,8 @@ const handleFileUpload = async (file) => {
     if (response.data.message === "success") {
       ElMessage.success("文件上传成功");
       await fetchResults();
+      // 上传成功后跳转到威胁告警页面
+      router.push("/threat");
     }
   } catch (error) {
     console.error("上传错误:", error);
@@ -34,6 +38,8 @@ const handleSuccess = (response, file, fileList) => {
   console.log("上传成功:", response, file, fileList);
   ElMessage.success("文件上传成功");
   fetchResults();
+  // 上传成功后跳转到威胁告警页面
+  router.push("/threat");
 };
 
 const handleError = (error, file, fileList) => {
@@ -55,7 +61,7 @@ onMounted(() => {
   <div class="home-container">
     <div class="home">
       <div class="title">
-        <h1>网哨</h1>
+        <h1>网盾</h1>
         <h2>基于 <span>3D-IDS</span> 的</h2>
         <h2>网络异常流量检测平台</h2>
       </div>
@@ -131,8 +137,8 @@ onMounted(() => {
   }
   .logo {
     margin-right: 50px;
-    height: 250px;
-    width: 250px;
+    height: 350px;
+    width: 350px;
     position: relative;
     img {
       height: 100%;

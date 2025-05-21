@@ -37,13 +37,13 @@ const changeIndex = (path) => {
 <template>
   <div class="header-container">
     <div class="logo" v-if="page !== 1">
-      <img class="border-right" src="/bupt-logo.png" alt="" />
+      <!-- <img class="border-right" src="/bupt-logo.png" alt="" /> -->
       <img src="/logo.png" alt="" />
-      <span>网哨</span>
+      <span>网盾</span>
     </div>
-    <div class="logo" v-else>
-      <img class="only" src="/bupt-logo.png" alt="" />
-    </div>
+    <!-- <div class="logo" v-else>
+      <img class="only" src="/bupt-logo.png" alt="" /> -->
+    <!-- </div> -->
 
     <div class="nav">
       <router-link

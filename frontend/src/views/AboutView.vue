@@ -23,7 +23,7 @@ const features = ref([
 const team = ref([
   {
     name: "开发团队",
-    role: "北京邮电大学",
+    role: "计算机大王",
     description: "致力于网络安全研究与开发",
   },
 ]);
@@ -34,11 +34,11 @@ const team = ref([
     <el-card class="about-header">
       <template #header>
         <div class="card-header">
-          <h1>关于网哨</h1>
+          <h1>关于网盾</h1>
         </div>
       </template>
       <p class="description">
-        网哨是一个专业的网络流量分析工具，致力于为用户提供全面的网络安全解决方案。
+        网盾是一个专业的网络流量分析工具，致力于为用户提供全面的网络安全解决方案。
         通过先进的数据分析技术，帮助用户识别和预防网络威胁。
       </p>
     </el-card>
