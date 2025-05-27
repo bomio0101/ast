@@ -38,12 +38,69 @@ const handleFileUpload = async (file) => {
 
 const fetchResults = async () => {
   try {
-    const { data } = await getResults();
-    results.value = data.result;
+    loading.value = true;
+    const response = await getResults();
+    console.log("获取到的数据:", response);
+
+    if (response && response.data) {
+      // 确保数据是数组
+      const dataArray = Array.isArray(response.data)
+        ? response.data
+        : [response.data];
+
+      // 处理每条数据
+      results.value = dataArray
+        .map((item) => {
+          try {
+            // 如果数据是字符串，尝试解析JSON
+            const packetData =
+              typeof item === "string" ? JSON.parse(item) : item;
+
+            return {
+              timestamp: packetData.timestamp || "未知时间",
+              src_ip: packetData.src_ip || "未知源IP",
+              dst_ip: packetData.dst_ip || "未知目标IP",
+              protocol: packetData.protocol || "未知协议",
+              src_port: packetData.src_port || "未知源端口",
+              dst_port: packetData.dst_port || "未知目标端口",
+              flags: packetData.flags || "未知标志",
+              is_syn_scan: packetData.is_syn_scan || false,
+            };
+          } catch (e) {
+            console.error("解析数据包失败:", e);
+            return null;
+          }
+        })
+        .filter((item) => item !== null); // 过滤掉解析失败的数据
+
+      console.log("处理后的数据:", results.value);
+    } else {
+      results.value = [];
+      console.log("没有数据");
+    }
   } catch (error) {
     console.error("获取数据失败:", error);
-    ElMessage.error(`获取数据失败: ${error.message}`);
+    results.value = [];
+  } finally {
+    loading.value = false;
   }
+};
+
+// 获取数据包类型
+const getPacketType = (packetData) => {
+  if (!packetData) return "未知";
+
+  if (packetData.protocol === 6) {
+    if (packetData.flags && packetData.flags.includes("S")) {
+      return "TCP SYN 扫描";
+    }
+    return "TCP 连接";
+  } else if (packetData.protocol === 17) {
+    return "UDP 数据包";
+  } else if (packetData.protocol === 1) {
+    return "ICMP 数据包";
+  }
+  return "其他类型";
 };
 
 const handleSuccess = (response, file, fileList) => {
@@ -147,12 +204,15 @@ const toggleSniffing = async () => {
 
     if (isSniffing.value) {
       console.log("尝试停止抓包");
+      loading.value = true;
       const res = await stopSniffing();
       console.log("停止抓包响应:", res);
 
       if (res.data.success) {
         ElMessage.success("停止抓包成功");
         isSniffing.value = false;
+        // 停止抓包后跳转到威胁告警页面
+        router.push("/threat");
       } else {
         ElMessage.error(res.data.message || "停止抓包失败");
       }
@@ -163,12 +223,15 @@ const toggleSniffing = async () => {
       }
 
       console.log("尝试开始抓包，选择的接口:", selectedInterface.value);
+      loading.value = true;
       const res = await startSniffing(selectedInterface.value);
       console.log("开始抓包响应:", res);
 
       if (res.data.success) {
         ElMessage.success("开始抓包成功");
         isSniffing.value = true;
+        // 开始抓包后跳转到威胁告警页面
+        router.push("/threat");
       } else {
         ElMessage.error(res.data.message || "开始抓包失败");
       }
@@ -185,15 +248,24 @@ const toggleSniffing = async () => {
     } else {
       ElMessage.error("操作失败，请检查网络连接");
     }
+  } finally {
+    loading.value = false;
   }
 };
 
 // 使用轮询而不是频繁请求
 let statusCheckInterval;
 
-onMounted(() => {
-  fetchInterfaces();
-  // 只在用户主动开始抓包后才启动状态检查
+onMounted(async () => {
+  await fetchInterfaces();
+  // 检查当前抓包状态
+  try {
+    const response = await getSniffingStatus();
+    isSniffing.value = response.data.status === "running";
+  } catch (error) {
+    console.error("获取初始抓包状态失败:", error);
+  }
+  // 启动状态检查
   statusCheckInterval = setInterval(checkSniffingStatus, 5000);
 });
 
@@ -250,23 +322,15 @@ const navigateToThreat = () => {
           style="width: 200px; margin-right: 20px"
         >
           <el-option
-            v-for="iface in interfaces"
-            :key="iface"
-            :label="iface"
-            :value="iface"
+            v-for="item in interfaces"
+            :key="item"
+            :label="item"
+            :value="item"
           />
         </el-select>
-        <el-button
-          type="primary"
-          :loading="isSniffing"
-          @click="toggleSniffing"
-          size="large"
-        >
+        <el-button type="primary" :loading="loading" @click="toggleSniffing">
           {{ isSniffing ? "停止抓包" : "开始抓包" }}
         </el-button>
-        <span class="status-text" :class="{ active: isSniffing }">
-          {{ isSniffing ? "正在抓包..." : "未开始抓包" }}
-        </span>
       </div>
 
       <!-- <div class="button-container">
@@ -283,10 +347,14 @@ const navigateToThreat = () => {
       v-if="results.length"
       :data="results"
       style="width: 100%; margin-top: 20px"
+      v-loading="loading"
     >
-      <el-table-column prop="0" label="ID" width="180" />
-      <el-table-column prop="1" label="数据" />
+      <el-table-column prop="timestamp" label="时间" width="180" />
+      <el-table-column prop="src_ip" label="源IP" width="180" />
+      <el-table-column prop="dst_ip" label="目标IP" width="180" />
+      <el-table-column prop="type" label="数据包类型" />
     </el-table>
+    <div v-else-if="!loading" class="no-data">暂无检测数据</div>
   </div>
 </template>
 
@@ -375,5 +443,12 @@ const navigateToThreat = () => {
   display: flex;
   gap: 20px;
   justify-content: center;
+}
+
+.no-data {
+  text-align: center;
+  padding: 20px;
+  color: #909399;
+  font-size: 14px;
 }
 </style>

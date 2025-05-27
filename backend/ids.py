@@ -12,11 +12,14 @@ from datetime import datetime
 import ctypes
 import subprocess
 import sys
-
+import logging
+# ...
+logger = logging.getLogger(__name__) 
 # 全局变量用于控制抓包状态
 is_sniffing = False
 sniff_thread = None
-
+_basedir = os.path.abspath(os.path.dirname(__file__))
+DATABASE_PATH = os.path.join(_basedir, 'data\network_data.db')
 def is_admin():
     """检查程序是否以管理员权限运行"""
     try:
@@ -90,6 +93,7 @@ def get_available_interfaces():
 
 def packet_callback(packet):
     """处理每个捕获的数据包"""
+    logging.info(f"packet_callback 被调用，接收到数据包: {packet.summary()}")
     try:
         packet_data = {}
         
@@ -117,7 +121,7 @@ def packet_callback(packet):
             json_data = json.dumps(packet_data)
             
             # 存入数据库
-            conn = sqlite3.connect('network_data.db')
+            conn = sqlite3.connect('data/network_data.db')
             cursor = conn.cursor()
             cursor.execute('INSERT INTO packets (data) VALUES (?)', (json_data,))
             conn.commit()
@@ -171,12 +175,15 @@ def start_sniffing(interface=None):
                       prn=packet_callback, 
                       store=0, 
                       timeout=0,
-                      filter="ip",  # 只抓取IP包
+                      filter=None,  # 只抓取IP包
                       stop_filter=lambda x: not is_sniffing)  # 添加停止条件
             except Exception as e:
                 logging.error(f"抓包过程中出现错误: {str(e)}")
                 is_sniffing = False
                 return False, f"抓包失败: {str(e)}"
+            # finally:
+            #     logging.info(f"抓包线程: 在接口 {current_interface_for_thread} 上的抓包逻辑结束。设置 is_sniffing = False。")
+            #     # is_sniffing = False # ★★★ 关键确保 ★★★
                 
         except Exception as e:
             logging.error(f"抓包线程出现错误: {str(e)}")
@@ -275,3 +282,45 @@ def analyze_pcap(file):
     except Exception as e:
         logging.error(f"分析过程中出现错误: {str(e)}")
         raise e
+    
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.DEBUG, 
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    logger.info("正在直接运行 ids.py 以测试 Scapy 抓包...")
+
+    if not is_admin(): # <--- 管理员权限检查
+        logger.error("错误：此测试脚本需要管理员权限才能直接进行网络抓包。请以管理员身份运行。")
+        sys.exit(1) # 如果没有权限，脚本会在这里退出
+
+    available_interfaces = get_available_interfaces() # <--- 获取接口
+    if not available_interfaces:
+        logger.error("未能获取到任何可用网络接口，无法进行测试。")
+        sys.exit(1) # 如果没有接口，脚本会在这里退出
+    
+    INTERFACE_TO_TEST = available_interfaces[0]
+    if "WLAN 2" in available_interfaces:
+        INTERFACE_TO_TEST = "WLAN 2"
+    logger.info(f"将使用接口: '{INTERFACE_TO_TEST}' 进行测试。")
+
+    PACKET_COUNT_TO_SNIFF = 10
+    
+    logger.info(f"尝试在接口 '{INTERFACE_TO_TEST}' 上抓取 {PACKET_COUNT_TO_SNIFF} 个 IP 数据包...")
+    logger.info(f"每个捕获到的 IP 包信息将由 packet_callback 处理并打印。")
+
+    try:
+        is_sniffing_test_flag = True # 用于测试的本地停止标志 (如果需要)
+        sniff(iface=INTERFACE_TO_TEST, 
+              prn=packet_callback,
+              count=PACKET_COUNT_TO_SNIFF,
+              filter="ip",
+              stop_filter=lambda x: not is_sniffing_test_flag) # <--- 调用 sniff()
+        
+        logger.info(f"Scapy sniff() 函数执行完毕。测试结束。")
+    
+    except Exception as e:
+        logger.error(f"在接口 '{INTERFACE_TO_TEST}' 上直接使用 Scapy sniff 时发生错误: {e}", exc_info=True)
+    finally:
+        is_sniffing_test_flag = False

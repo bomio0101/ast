@@ -19,6 +19,15 @@
             ><span>中危</span> - {{ count.mediumRisk }}条</span
           >
           <span class="low"><span>低危</span> - {{ count.lowRisk }}条</span>
+          <el-button
+            type="danger"
+            size="small"
+            @click="stopSniffing"
+            :loading="stopping"
+            style="float: right"
+          >
+            停止抓包
+          </el-button>
         </div>
         <div class="overview">
           <div class="graph">
@@ -115,47 +124,61 @@ const count = ref({
   mediumRisk: 0,
   lowRisk: 0,
 });
-const chartDom_1 = ref(null); // 初始化为 null
-const chartDom_2 = ref(null); // 初始化为 null
-let myChart1 = null; // 初始化为 null
-let myChart2 = null; // 初始化为 null
-
+const chartDom_1 = ref(null);
+const chartDom_2 = ref(null);
+let myChart1 = null;
+let myChart2 = null;
 const loading = ref(true);
 const dataLoaded = ref(false);
+const stopping = ref(false);
+
+// 添加小时数组定义
+const hours = Array.from({ length: 24 }, (_, i) => `${i}:00`);
 
 // 清空数据和图表的函数
 const clearDataAndCharts = () => {
   console.log("清空现有数据和图表...");
   dataList.value = [];
   count.value = { all: 0, critical: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0 };
-  dataLoaded.value = false; // 重置加载状态，防止watch过早触发
+  dataLoaded.value = false;
 
   if (myChart1) {
     myChart1.dispose();
-    myChart1 = null; // 清除实例引用
+    myChart1 = null;
   }
   if (myChart2) {
     myChart2.dispose();
-    myChart2 = null; // 清除实例引用
+    myChart2 = null;
   }
 };
 
 const fetchData = async () => {
-  // ★★★ 在获取新数据前，先清空旧数据和图表 ★★★
-  clearDataAndCharts(); // 调用清空函数
+  clearDataAndCharts();
 
   try {
     loading.value = true;
     const res = await axios.get("http://localhost:5000/results");
     if (res.status === 200) {
       console.log("获取到的原始数据:", res.data.result);
-      // ... (数据解析和映射逻辑保持不变) ...
+
+      // 检查数据是否为空
+      if (!res.data.result || res.data.result.length === 0) {
+        console.log("没有检测到威胁数据");
+        dataList.value = [];
+        initCount();
+        dataLoaded.value = true;
+        ElMessage.info("当前没有检测到威胁数据");
+        return;
+      }
+
+      // 优化数据解析逻辑
       dataList.value = res.data.result.map((item) => {
         try {
           const data =
             typeof item[1] === "string" ? JSON.parse(item[1]) : item[1];
+          const timestamp = data.timestamp || Date.now();
           return {
-            time: new Date().toLocaleString(), // 注意：这里的时间是当前时间，不是数据包时间
+            time: new Date(timestamp).toLocaleString(),
             src: data.src_ip || data.src || "未知",
             dst: data.dst_ip || data.dst || "未知",
             type: getThreatType(data),
@@ -164,31 +187,32 @@ const fetchData = async () => {
         } catch (e) {
           console.error("数据解析错误:", e, item);
           return {
-            /* ... 错误时的默认数据 ... */
+            time: new Date().toLocaleString(),
+            src: "未知",
+            dst: "未知",
+            type: "未知攻击",
+            level: "low",
           };
         }
       });
-      console.log("处理后的数据列表:", dataList.value);
-      initCount(); // 重新计算统计
-      dataLoaded.value = true; // 在数据处理和计数完成后设置
 
-      // 确保在 DOM 更新后初始化图表
+      console.log("处理后的数据列表:", dataList.value);
+      initCount();
+      dataLoaded.value = true;
+
       await nextTick();
-      // setTimeout 可能是为了确保DOM元素完全可用，但dispose应该能处理重复初始化
-      // 如果仍然遇到时序问题，可以保留 setTimeout，但 dispose 是关键
-      // setTimeout(() => {
       initGraph_1();
       initGraph_2();
-      // }, 100);
     }
   } catch (error) {
     console.error("Error fetching results:", error);
     ElMessage.error("获取数据失败");
-    dataLoaded.value = false; // 获取失败时也应重置
+    dataLoaded.value = false;
   } finally {
     loading.value = false;
   }
 };
+
 const getThreatType = (data) => {
   if (data.protocol === 6) {
     if (data.flags && data.flags.includes("S")) {
@@ -410,12 +434,8 @@ const getLevelName = (value) => {
 watch(
   dataList,
   () => {
-    // 当 dataList 变化时（通常是在 fetchData 成功后）
-    // 并且数据已标记为加载完成，DOM 元素也已准备好
-    if (dataLoaded.value && chartDom_1.value && chartDom_2.value) {
+    if (dataLoaded.value) {
       nextTick(() => {
-        console.log("dataList changed, re-rendering charts via watch");
-        // 由于 initGraph_X 内部会先 dispose，所以直接调用是安全的
         initGraph_1();
         initGraph_2();
       });
@@ -424,20 +444,73 @@ watch(
   { deep: true }
 );
 
+// 添加定时刷新功能
+let refreshInterval = null;
+
+const stopSniffing = async () => {
+  try {
+    stopping.value = true;
+    const res = await axios.post("http://localhost:5000/stop_sniffing");
+    if (res.data.success) {
+      ElMessage.success("已停止抓包");
+      // 停止自动刷新
+      if (refreshInterval) {
+        clearInterval(refreshInterval);
+        refreshInterval = null;
+      }
+    } else {
+      ElMessage.error(res.data.message || "停止抓包失败");
+    }
+  } catch (error) {
+    console.error("停止抓包失败:", error);
+    ElMessage.error("停止抓包失败");
+  } finally {
+    stopping.value = false;
+  }
+};
+
+// 修改定时刷新逻辑，只在抓包运行时刷新
+const startAutoRefresh = () => {
+  if (!refreshInterval) {
+    refreshInterval = setInterval(fetchData, 30000);
+  }
+};
+
+const stopAutoRefresh = () => {
+  if (refreshInterval) {
+    clearInterval(refreshInterval);
+    refreshInterval = null;
+  }
+};
+
+// 检查抓包状态
+const checkSniffingStatus = async () => {
+  try {
+    const res = await axios.get("http://localhost:5000/sniffing_status");
+    if (res.data.status === "running") {
+      startAutoRefresh();
+    } else {
+      stopAutoRefresh();
+    }
+  } catch (error) {
+    console.error("检查抓包状态失败:", error);
+    stopAutoRefresh();
+  }
+};
+
 onMounted(async () => {
-  await fetchData(); // 页面加载时获取数据并初始化
+  await fetchData();
+  await checkSniffingStatus();
 });
 
 onUnmounted(() => {
-  // 组件卸载时销毁图表实例，防止内存泄漏
   if (myChart1) {
     myChart1.dispose();
-    myChart1 = null;
   }
   if (myChart2) {
     myChart2.dispose();
-    myChart2 = null;
   }
+  stopAutoRefresh();
 });
 </script>
 
