@@ -115,26 +115,47 @@ const count = ref({
   mediumRisk: 0,
   lowRisk: 0,
 });
-const chartDom_1 = ref();
-const chartDom_2 = ref();
-let myChart1, myChart2;
+const chartDom_1 = ref(null); // 初始化为 null
+const chartDom_2 = ref(null); // 初始化为 null
+let myChart1 = null; // 初始化为 null
+let myChart2 = null; // 初始化为 null
 
 const loading = ref(true);
 const dataLoaded = ref(false);
 
+// 清空数据和图表的函数
+const clearDataAndCharts = () => {
+  console.log("清空现有数据和图表...");
+  dataList.value = [];
+  count.value = { all: 0, critical: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0 };
+  dataLoaded.value = false; // 重置加载状态，防止watch过早触发
+
+  if (myChart1) {
+    myChart1.dispose();
+    myChart1 = null; // 清除实例引用
+  }
+  if (myChart2) {
+    myChart2.dispose();
+    myChart2 = null; // 清除实例引用
+  }
+};
+
 const fetchData = async () => {
+  // ★★★ 在获取新数据前，先清空旧数据和图表 ★★★
+  clearDataAndCharts(); // 调用清空函数
+
   try {
     loading.value = true;
     const res = await axios.get("http://localhost:5000/results");
     if (res.status === 200) {
       console.log("获取到的原始数据:", res.data.result);
+      // ... (数据解析和映射逻辑保持不变) ...
       dataList.value = res.data.result.map((item) => {
         try {
           const data =
             typeof item[1] === "string" ? JSON.parse(item[1]) : item[1];
-          console.log("解析后的数据:", data);
           return {
-            time: new Date().toLocaleString(),
+            time: new Date().toLocaleString(), // 注意：这里的时间是当前时间，不是数据包时间
             src: data.src_ip || data.src || "未知",
             dst: data.dst_ip || data.dst || "未知",
             type: getThreatType(data),
@@ -143,33 +164,31 @@ const fetchData = async () => {
         } catch (e) {
           console.error("数据解析错误:", e, item);
           return {
-            time: new Date().toLocaleString(),
-            src: "解析错误",
-            dst: "解析错误",
-            type: "未知攻击",
-            level: "low",
+            /* ... 错误时的默认数据 ... */
           };
         }
       });
       console.log("处理后的数据列表:", dataList.value);
-      initCount();
-      dataLoaded.value = true;
+      initCount(); // 重新计算统计
+      dataLoaded.value = true; // 在数据处理和计数完成后设置
 
       // 确保在 DOM 更新后初始化图表
       await nextTick();
-      setTimeout(() => {
-        initGraph_1();
-        initGraph_2();
-      }, 100);
+      // setTimeout 可能是为了确保DOM元素完全可用，但dispose应该能处理重复初始化
+      // 如果仍然遇到时序问题，可以保留 setTimeout，但 dispose 是关键
+      // setTimeout(() => {
+      initGraph_1();
+      initGraph_2();
+      // }, 100);
     }
   } catch (error) {
     console.error("Error fetching results:", error);
     ElMessage.error("获取数据失败");
+    dataLoaded.value = false; // 获取失败时也应重置
   } finally {
     loading.value = false;
   }
 };
-
 const getThreatType = (data) => {
   if (data.protocol === 6) {
     if (data.flags && data.flags.includes("S")) {
@@ -232,7 +251,14 @@ const generatePieData = () => {
 };
 
 const initGraph_1 = () => {
-  if (!chartDom_1.value) return;
+  if (!chartDom_1.value) {
+    console.warn("chartDom_1 is not available for initGraph_1");
+    return;
+  }
+  // ★★★ 确保在 init 之前销毁旧实例 (clearDataAndCharts 已做，这里是双重保险) ★★★
+  if (myChart1) {
+    myChart1.dispose();
+  }
   myChart1 = echarts.init(chartDom_1.value);
   const option = {
     title: {
@@ -270,7 +296,7 @@ const initGraph_1 = () => {
             fontWeight: "bold",
           },
         },
-        data: generatePieData(),
+        data: generatePieData(), // 确保 generatePieData() 返回正确的数据格式
       },
     ],
   };
@@ -295,9 +321,15 @@ const generateLineData = () => {
 };
 
 const initGraph_2 = () => {
-  if (!chartDom_2.value) return;
+  if (!chartDom_2.value) {
+    console.warn("chartDom_2 is not available for initGraph_2");
+    return;
+  }
+  // ★★★ 确保在 init 之前销毁旧实例 (clearDataAndCharts 已做，这里是双重保险) ★★★
+  if (myChart2) {
+    myChart2.dispose();
+  }
   myChart2 = echarts.init(chartDom_2.value);
-  const hours = Array.from({ length: 24 }, (_, i) => `${i}:00`);
   const option = {
     title: {
       text: "告警趋势",
@@ -331,7 +363,7 @@ const initGraph_2 = () => {
         name: "告警数量",
         type: "line",
         smooth: true,
-        data: generateLineData(),
+        data: generateLineData(), // 确保 generateLineData() 返回正确的数据格式
         areaStyle: {
           opacity: 0.3,
         },
@@ -378,8 +410,12 @@ const getLevelName = (value) => {
 watch(
   dataList,
   () => {
-    if (dataLoaded.value) {
+    // 当 dataList 变化时（通常是在 fetchData 成功后）
+    // 并且数据已标记为加载完成，DOM 元素也已准备好
+    if (dataLoaded.value && chartDom_1.value && chartDom_2.value) {
       nextTick(() => {
+        console.log("dataList changed, re-rendering charts via watch");
+        // 由于 initGraph_X 内部会先 dispose，所以直接调用是安全的
         initGraph_1();
         initGraph_2();
       });
@@ -389,15 +425,18 @@ watch(
 );
 
 onMounted(async () => {
-  await fetchData();
+  await fetchData(); // 页面加载时获取数据并初始化
 });
 
 onUnmounted(() => {
+  // 组件卸载时销毁图表实例，防止内存泄漏
   if (myChart1) {
     myChart1.dispose();
+    myChart1 = null;
   }
   if (myChart2) {
     myChart2.dispose();
+    myChart2 = null;
   }
 });
 </script>
